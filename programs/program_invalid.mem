@@ -1,0 +1,16 @@
+C5 // LDI R0,#5
+80 // reserved opcode 100 -> trap
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0

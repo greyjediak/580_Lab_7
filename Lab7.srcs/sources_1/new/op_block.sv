@@ -1,5 +1,5 @@
 `timescale 1ns/1ps
-
+// op_block takes two input and produces three output: y (AND or OR), any, and eq
 module op_block #(parameter int WIDTH = 8) (
   input  logic [WIDTH-1:0] a,
   input  logic [WIDTH-1:0] b,

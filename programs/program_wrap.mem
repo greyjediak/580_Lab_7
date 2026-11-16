@@ -1,0 +1,16 @@
+C0 // LDI R0,#0
+C9 // LDI R1,#1
+22 // SUB R0,R1 => FF
+02 // ADD R0,R1 => 00
+E0 // HALT
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
+E0
