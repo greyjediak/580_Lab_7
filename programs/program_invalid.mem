@@ -1,5 +1,6 @@
 C5 // LDI R0,#5
-80 // reserved opcode 100 -> trap
+A0 // 01 reserved opcode 101, halt, illegal_instr=1
+C0 // 02 LDI R0, must not execxute
 E0
 E0
 E0
