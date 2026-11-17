@@ -1,5 +1,5 @@
 `timescale 1ns/1ps
-module tb_stored_cpu;
+module tb_ext_stored_cpu;
     logic clk = 1'b0;
     always #5 clk = ~clk;
     logic rst = 1'b1;
@@ -15,28 +15,28 @@ module tb_stored_cpu;
     logic five_illegal, long_illegal, bad_illegal, wrap_illegal;
     logic [7:0] five_sel, long_sel, bad_sel, wrap_sel;
 
-    stored_cpu #(.MEM_FILE("program_5.mem")) u_five (
+    ext_stored_cpu #(.MEM_FILE("program_5.mem")) u_five (
         .clk(clk), .rst(rst), .debug_sel(2'd0), .debug_reg(five_sel),
         .debug_pc(five_pc), .debug_ir(five_ir), .debug_state(five_state),
         .halted(five_halted), .illegal_instr(five_illegal),
         .debug_r0(five_r0), .debug_r1(five_r1),
         .debug_r2(five_r2), .debug_r3(five_r3)
     );
-    stored_cpu #(.MEM_FILE("program_13.mem")) u_long (
+    ext_stored_cpu #(.MEM_FILE("program_13.mem")) u_long (
         .clk(clk), .rst(rst), .debug_sel(2'd1), .debug_reg(long_sel),
         .debug_pc(long_pc), .debug_ir(long_ir), .debug_state(long_state),
         .halted(long_halted), .illegal_instr(long_illegal),
         .debug_r0(long_r0), .debug_r1(long_r1),
         .debug_r2(long_r2), .debug_r3(long_r3)
     );
-    stored_cpu #(.MEM_FILE("program_invalid.mem")) u_bad (
+    ext_stored_cpu #(.MEM_FILE("program_invalid.mem")) u_bad (
         .clk(clk), .rst(rst), .debug_sel(2'd0), .debug_reg(bad_sel),
         .debug_pc(bad_pc), .debug_ir(bad_ir), .debug_state(bad_state),
         .halted(bad_halted), .illegal_instr(bad_illegal),
         .debug_r0(bad_r0), .debug_r1(bad_r1),
         .debug_r2(bad_r2), .debug_r3(bad_r3)
     );
-    stored_cpu #(.MEM_FILE("program_wrap.mem")) u_wrap (
+    ext_stored_cpu #(.MEM_FILE("program_wrap.mem")) u_wrap (
         .clk(clk), .rst(rst), .debug_sel(2'd0), .debug_reg(wrap_sel),
         .debug_pc(wrap_pc), .debug_ir(wrap_ir), .debug_state(wrap_state),
         .halted(wrap_halted), .illegal_instr(wrap_illegal),

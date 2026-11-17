@@ -28,7 +28,6 @@ module cpu_decode (
             3'b000, 3'b001, 3'b010, 3'b011: is_rtype = 1'b1; // add, sub, and, ior
             3'b110: is_ldi = 1'b1;
             3'b111: is_halt = 1'b1;
-            3'b100, 3'b101: is_valid = 1'b0; // reserved, halt and flag illegal instruction
             default: ; // default
         endcase
     end // end always begin
