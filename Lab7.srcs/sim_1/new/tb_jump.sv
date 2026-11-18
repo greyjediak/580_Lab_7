@@ -5,8 +5,8 @@ module tb_jump;
     always #5 clk = ~clk;             // 100 MHz
     logic rst = 1'b1;
 
-    localparam int N_RETIRE = 9;      // instructions completed before HALT
-    localparam int TIMEOUT  = 200;    // clocks allowed to reach HALT
+    localparam int N_RETIRE = 12;     // instructions completed before HALT
+    localparam int TIMEOUT  = 300;    // clocks allowed to reach HALT
     
     localparam int N_TAKEN = 2; //jnz taken
     localparam int N_NOT_TAKEN = 1; //jnz not taken
@@ -29,6 +29,9 @@ module tb_jump;
         .debug_r0(r0), .debug_r1(r1),
         .debug_r2(r2), .debug_r3(r3)
     );
+
+    // Saved ALU result inside the datapath (JNZ must not change it).
+    wire [7:0] alu_q = dut.u_datapath.alu_q;
 
     // Independent copy of the program, used to check instruction fetch.
     logic [7:0] rom_copy [0:15];
@@ -105,7 +108,7 @@ module tb_jump;
                                 ir, pc, rom_copy[pc]));
 
             // No register writes except on the edge that leaves WB
-            // (covers FETCH, IR, DECODE, EXEC, INC, and HALT).
+            // (covers FETCH, IR, DECODE, EXEC, INC, HALT, and BRANCH).
             if (prev_state !== S_WB)
                 check({r0, r1, r2, r3} === {prev_r0, prev_r1, prev_r2, prev_r3},
                       $sformatf("register write on the edge leaving state %0d", prev_state));
@@ -115,8 +118,39 @@ module tb_jump;
                 check(pc === prev_pc,
                       $sformatf("PC changed on the edge leaving state %0d", prev_state));
 
-            // A completed instruction: the PC advanced on the INC edge.
-            if (prev_state === S_INC) begin
+            // Every JNZ: taken exactly when R[rd] != 0, to the right PC,
+            // without changing the saved ALU result.
+            if (prev_state === S_BRANCH) begin
+                case (prev_ir[4:3])            // rd field of the JNZ
+                    2'd0: tested = prev_r0;
+                    2'd1: tested = prev_r1;
+                    2'd2: tested = prev_r2;
+                    default: tested = prev_r3;
+                endcase
+
+                check(alu_q === prev_alu_q,
+                      $sformatf("JNZ changed the saved ALU result: %02h -> %02h",
+                                prev_alu_q, alu_q));
+
+                if (tested !== 8'h00) begin
+                    taken++;
+                    check(pc === {1'b0, prev_ir[2:0]},   // target3 field
+                          $sformatf("JNZ at PC=%0d with R%0d=%02h should jump to %0d, got PC=%0d",
+                                    prev_pc, prev_ir[4:3], tested, prev_ir[2:0], pc));
+                    $display("JNZ at PC=%0d: R%0d=%02h != 0 -> TAKEN to %0d",
+                             prev_pc, prev_ir[4:3], tested, pc);
+                end else begin
+                    not_taken++;
+                    check(pc === prev_pc + 4'd1,
+                          $sformatf("JNZ at PC=%0d with R%0d=00 should fall through to %0d, got PC=%0d",
+                                    prev_pc, prev_ir[4:3], prev_pc + 4'd1, pc));
+                    $display("JNZ at PC=%0d: R%0d=00 -> NOT TAKEN to %0d",
+                             prev_pc, prev_ir[4:3], pc);
+                end
+            end
+
+            // A completed instruction: the PC advanced on the INC or BRANCH edge.
+            if (prev_state === S_INC || prev_state === S_BRANCH) begin
                 retired++;
                 check_snapshot(retired);
             end
@@ -125,6 +159,8 @@ module tb_jump;
         prev_state = state;
         prev_pc    = pc;
         {prev_r0, prev_r1, prev_r2, prev_r3} = {r0, r1, r2, r3};
+        prev_ir    = ir;
+        prev_alu_q = alu_q;
     end
 // Testing sequence
     initial begin
@@ -146,10 +182,13 @@ module tb_jump;
         // Final state at HALT.
         check(retired == N_RETIRE,
               $sformatf("%0d instructions completed, expected %0d", retired, N_RETIRE));
+        check(taken == N_TAKEN && not_taken == N_NOT_TAKEN,
+              $sformatf("JNZ taken %0d / not taken %0d, expected %0d / %0d",
+                        taken, not_taken, N_TAKEN, N_NOT_TAKEN));
         check(state === S_HALT, "controller in HALT state");
         check(illegal_instr === 1'b0, "normal HALT: illegal_instr = 0");
         check(ir === 8'hE0, "IR holds the HALT instruction");
-        check_state(9, 8'h07, 8'h03, 8'h04, 8'h06, "final state at HALT");
+        check_state(6, 8'h00, 8'h06, 8'h00, 8'h01, "final state at HALT");
 
         // debug_sel / debug_reg selector.
         for (int i = 0; i < 4; i++) begin
@@ -165,19 +204,60 @@ module tb_jump;
             @(negedge clk);
             check(halted === 1'b1 && illegal_instr === 1'b0,
                   "status flags hold after HALT");
-            check_state(9, 8'h07, 8'h03, 8'h04, 8'h06, "state holds after HALT");
+            check_state(6, 8'h00, 8'h06, 8'h00, 8'h01, "state holds after HALT");
         end
+        $display("run 1 done: %0d instructions, JNZ taken %0d / not taken %0d",
+                 retired, taken, not_taken);
+
+        // Reset again while the loop is running, then run to HALT again.
+        rst = 1'b1;
+        repeat (2) @(negedge clk);
+        rst = 1'b0;
+        repeat (40) @(negedge clk);   // part-way through the second pass
+        check(retired >= 4 && retired < N_RETIRE && halted === 1'b0,
+              $sformatf("reset applied during the loop (retired=%0d)", retired));
+        $display("asserting reset mid-loop: PC=%0d, %0d instructions done, R0=%02h R1=%02h",
+                 pc, retired, r0, r1);
+        rst = 1'b1;
+        repeat (2) @(negedge clk);
+        rst = 1'b0;
+
+        // Run until HALT, with an explicit timeout.
+        begin : wait_for_halt_2
+            int c;
+            c = 0;
+            while (c < TIMEOUT && halted !== 1'b1) begin
+                @(negedge clk);
+                c++;
+            end
+        end
+        check(halted === 1'b1, "after mid-loop reset: CPU halted within the timeout");
+
+        // Final state at HALT: the restarted program gives the same result.
+        check(retired == N_RETIRE,
+              $sformatf("after mid-loop reset: %0d instructions completed, expected %0d",
+                        retired, N_RETIRE));
+        check(taken == N_TAKEN && not_taken == N_NOT_TAKEN,
+              $sformatf("after mid-loop reset: JNZ taken %0d / not taken %0d, expected %0d / %0d",
+                        taken, not_taken, N_TAKEN, N_NOT_TAKEN));
+        check(state === S_HALT && illegal_instr === 1'b0,
+              "after mid-loop reset: normal HALT");
+        check_state(6, 8'h00, 8'h06, 8'h00, 8'h01, "after mid-loop reset: final state at HALT");
+
+        // Everything must hold for at least 10 clocks after HALT.
+        repeat (12) begin
+            @(negedge clk);
+            check(halted === 1'b1 && illegal_instr === 1'b0,
+                  "after mid-loop reset: status flags hold after HALT");
+            check_state(6, 8'h00, 8'h06, 8'h00, 8'h01, "after mid-loop reset: state holds after HALT");
+        end
+        $display("run 2 (reset mid-loop) done: %0d instructions, JNZ taken %0d / not taken %0d",
+                 retired, taken, not_taken);
 
         if (errors == 0)
-            $display("PASS: program_lindsey_10 -- %0d instructions, all checks passed", retired);
+            $display("PASS JNZ instructions given, midloop restart");
         else
-            $fatal(1, "FAIL: program_lindsey_10 (%0d errors)", errors);
+            $fatal(1, "FAIL: JNZ loop (%0d errors)", errors);
         $finish;
-    end
-
-    // Global watchdog: the simulation can never hang.
-    initial begin
-        #10us;
-        $fatal(1, "FAIL: global simulation timeout");
     end
 endmodule
